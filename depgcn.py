@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class Dependency_GCNLayer(nn.Module):
-    def __init__(self, input_dim, output_dim, dependency_list, reverse_case=True):
+    def __init__(self, input_dim, output_dim, dependency_list, reverse_case=True, dropout_rate=0.1):
         super(Dependency_GCNLayer, self).__init__()
         # dim: dimension of dependency weight
         # dependency_list: the entire dependency types
@@ -11,6 +11,7 @@ class Dependency_GCNLayer(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.activation = nn.ReLU()
+        self.dropout = nn.Dropout(p=dropout_rate)
 
         self.dependency_weight_list =[['self', nn.Linear(output_dim, output_dim)],['root', nn.Linear(output_dim, output_dim)]]
         self.reverse_case = reverse_case
@@ -62,8 +63,10 @@ class Dependency_GCNLayer(nn.Module):
 
         return temp_tensor
 
-    def forward(self, _input, dependency_triples):
-        return self.activation(self.message_passing(_input, dependency_triples))
+    def forward(self, _input, dependency_triples, is_dropout=True):
+        if is_dropout:
+            return self.dropout(self.relu(self.message_passing(_input, dependency_triples)))
+        return self.relu(self.message_passing(_input, dependency_triples))
 
 
 
@@ -79,19 +82,18 @@ class Dependency_GCN(nn.Module):
 
         self.gcn_layer = []
         for i in range(self.num_layers):
-            self.gcn_layer.append(Dependency_GCNLayer(self.input_dim, self.hidden_dim, dependency_list,reverse_case))
+            self.gcn_layer.append(Dependency_GCNLayer(self.input_dim, self.hidden_dim, dependency_list,reverse_case, dropout_rate))
 
-        self.dropout = nn.Dropout(dropout_rate)
         self.ff_layer = nn.Linear(in_features=self.hidden_dim, out_features=self.output_dim)
 
     def forward(self, _input, dependency_triples):
         output = self.gcn_layer[0](_input, dependency_triples)
 
         if self.num_layers > 1:
-            for i in range(self.num_layers-1):
+            for i in range(self.num_layers-2):
                 output = self.gcn_layer[i+1](output, dependency_triples)
+            output = self.gat_layer[self.num_layers-1](output, dependency_triples, False)
 
-        output = self.dropout(output)
         output = self.ff_layer(output)
 
         return output
