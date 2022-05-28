@@ -92,7 +92,7 @@ class Dependency_GCN(nn.Module):
         if self.num_layers > 1:
             for i in range(self.num_layers-2):
                 output = self.gcn_layer[i+1](output, dependency_triples)
-            output = self.gat_layer[self.num_layers-1](output, dependency_triples, False)
+            output = self.gcn_layer[self.num_layers-1](output, dependency_triples, False)
 
         output = self.ff_layer(output)
 
