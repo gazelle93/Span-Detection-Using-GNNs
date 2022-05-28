@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class Dependency_GATLayer(nn.Module):
-    def __init__(self, in_dim, out_dim, alpha, dependency_list):
+    def __init__(self, in_dim, out_dim, alpha, dependency_list, dropout_rate=0.1):
         super(Dependency_GATLayer, self).__init__()
         # in_dim: number of tokens
         # out_dim: dimension of word embedding
@@ -15,6 +15,7 @@ class Dependency_GATLayer(nn.Module):
         self.attn_weight = nn.Linear(out_dim*2, 1, bias=False)
         self.softmax = nn.Softmax(dim=1)
         self.leakyrelu = nn.LeakyReLU(alpha)
+        self.dropout = nn.Dropout(p=dropout_rate)
 
     def self_loop(self, _input, dependency_triples):
         self_loop_dict = {0:torch.zeros(self.out_dim)}
@@ -53,7 +54,7 @@ class Dependency_GATLayer(nn.Module):
         return e_tensor
 
 
-    def forward(self, _input, dependency_triples):
+    def forward(self, _input, dependency_triples, is_dropout=True):
         # self loop of each token
         self_loop_dict, h_dict = self.self_loop(_input, dependency_triples)
 
@@ -69,9 +70,11 @@ class Dependency_GATLayer(nn.Module):
             h_dict[cur_governor] += cur_attn
 
         output_list = list(h_dict.values())
-        output_list = self.leakyrelu(torch.stack(output_list))
-
-        return output_list
+        
+        if is_dropout:
+            return self.dropout(self.leakyrelu(torch.stack(output_list)))
+        
+        return self.leakyrelu(torch.stack(output_list))
 
 class Dependency_GAT(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, alpha,dependency_list, num_layers, dropout_rate):
@@ -89,19 +92,17 @@ class Dependency_GAT(nn.Module):
 
         self.gat_layer = []
         for i in range(num_layers):
-            self.gat_layer.append(Dependency_GATLayer(self.input_dim, self.hidden_dim, alpha, dependency_list))
+            self.gat_layer.append(Dependency_GATLayer(self.input_dim, self.hidden_dim, alpha, dependency_list, dropout_rate))
 
-        self.dropout = nn.Dropout(dropout_rate)
         self.ff_layer = nn.Linear(in_features=self.hidden_dim, out_features=self.output_dim)
 
     def forward(self, _input, dependency_triples):
         output = self.gat_layer[0](_input, dependency_triples)
 
         if self.num_layers > 1:
-            for i in range(self.num_layers-1):
+            for i in range(self.num_layers-2):
                 output = self.gat_layer[i+1](output, dependency_triples)
-
-        output = self.dropout(output)
+            output = self.gat_layer[self.num_layers-1](output, dependency_triples, False)
 
         output = self.ff_layer(output)
 
